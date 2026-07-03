@@ -6,13 +6,13 @@ import pandas as pd
 st.set_page_config(page_title="Fundamental Analysis Core", layout="centered")
 
 # 2. Изолированная функция с кэшированием (защита от бана по IP и ускорение)
-@st.cache_data(ttl=3600, show_spinner=False) # Кэш живет 1 час (3600 секунд)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_and_calculate_metrics(ticker_symbol):
     """Функция скачивает сырые данные, проводит расчеты и возвращает готовый словарь"""
     ticker = yf.Ticker(ticker_symbol)
     info = ticker.info
     
-    # Жесткая проверка на существование тикера (защита от фантомных ответов API)
+    # Жесткая проверка на существование тикера
     if not info or ('symbol' not in info and 'shortName' not in info and 'regularMarketPrice' not in info):
         return {"error": f"Данные по тикеру '{ticker_symbol}' не найдены. Проверьте правильность написания."}
         
@@ -49,7 +49,7 @@ def fetch_and_calculate_metrics(ticker_symbol):
         if not qcf.empty:
             if 'Free Cash Flow' in qcf.index:
                 fcf_data = qcf.loc['Free Cash Flow'].dropna()
-                if len(fcf_data) >= 1: # Берем до 4 последних кварталов
+                if len(fcf_data) >= 1:
                     fcf = fcf_data.head(4).sum()
             elif 'Operating Cash Flow' in qcf.index and 'Capital Expenditure' in qcf.index:
                 ocf_data = qcf.loc['Operating Cash Flow'].dropna().head(4)
@@ -57,9 +57,8 @@ def fetch_and_calculate_metrics(ticker_symbol):
                 if not ocf_data.empty and not capex_data.empty:
                     fcf = ocf_data.sum() + capex_data.sum()
     except Exception:
-        pass # Игнорируем ошибки парсинга отчетов
+        pass
 
-    # Фолбэк на стандартный инфо-словарь, если отчеты недоступны
     if fcf is None or pd.isna(fcf):
         fcf = info.get('freeCashflow')
 
@@ -70,12 +69,39 @@ def fetch_and_calculate_metrics(ticker_symbol):
     else:
         metrics['fcf_str'] = "Data Unavailable"
 
-    # --- (5) Next Year Growth Estimate ---
-    growth_estimate = info.get('earningsGrowth')
-    # Умный фолбэк: если прогноза прибыли нет, ищем прогноз выручки
-    if not isinstance(growth_estimate, (int, float)):
-        growth_estimate = info.get('revenueGrowth')
-        
+    # --- (5) Истинный прогноз роста (Next Year Consensus Estimate) ---
+    growth_estimate = None
+    
+    # Попытка 1: Запрашиваем таблицу Growth Estimates (вкладка Analysis)
+    try:
+        ge = ticker.growth_estimates
+        if ge is not None and not ge.empty:
+            if '+1y' in ge.index:
+                # Берем самую первую колонку (которая относится к самой акции)
+                val = ge.loc['+1y'].iloc[0]
+                if pd.notna(val):
+                    growth_estimate = float(val)
+    except Exception:
+        pass
+
+    # Попытка 2: Запрашиваем таблицу Earnings Estimate
+    if growth_estimate is None:
+        try:
+            ee = ticker.earnings_estimate
+            if ee is not None and not ee.empty:
+                if '+1y' in ee.index and 'growth' in ee.columns:
+                    val = ee.loc['+1y', 'growth']
+                    if pd.notna(val):
+                        growth_estimate = float(val)
+        except Exception:
+            pass
+
+    # Попытка 3: Фолбэк на старый метод (info), если таблицы API недоступны
+    if growth_estimate is None:
+        growth_estimate = info.get('earningsGrowth')
+        if not isinstance(growth_estimate, (int, float)):
+            growth_estimate = info.get('revenueGrowth')
+            
     metrics['growth_str'] = f"{growth_estimate * 100:.2f}%" if isinstance(growth_estimate, (int, float)) else "Data Unavailable"
 
     return metrics
@@ -84,7 +110,6 @@ def fetch_and_calculate_metrics(ticker_symbol):
 st.markdown("### Финансовый инжиниринг: Фундаментальные метрики")
 st.markdown("Инструмент аналитика для получения объективных данных (Опора 1 и Опора 2).")
 
-# Используем форму для безопасного ввода (Enter не сломает приложение)
 with st.form(key='analysis_form'):
     ticker_symbol = st.text_input("Тикер актива (например: AAPL, GOOGL, MSFT):").strip().upper()
     submit_button = st.form_submit_button(label="Анализировать")
@@ -94,14 +119,11 @@ if submit_button:
         st.warning("Пожалуйста, введите тикер для начала анализа.")
     else:
         with st.spinner(f"Запрашиваем и верифицируем данные по {ticker_symbol}..."):
-            
-            # Вызов кэшированной математической функции
             result = fetch_and_calculate_metrics(ticker_symbol)
             
             if "error" in result:
                 st.error(result["error"])
             else:
-                # Подготовка данных для таблицы
                 metrics_data = {
                     "Ключевая Метрика": [
                         "(1) Current Price & Market Cap",
@@ -120,13 +142,10 @@ if submit_button:
                 }
                 
                 df = pd.DataFrame(metrics_data)
-                
-                # Вывод таблицы
                 st.dataframe(df, hide_index=True, use_container_width=True)
 
                 st.markdown("---")
                 
-                # Вывод текста для копирования
                 raw_text = (
                     f"📊 ФУНДАМЕНТАЛЬНЫЙ АНАЛИЗ: {ticker_symbol}\n"
                     f"• Price & Market Cap: {result['price_and_cap']}\n"
