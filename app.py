@@ -87,15 +87,13 @@ if st.button("Анализировать"):
                         fcf_str = "Data Unavailable"
 
                     # 5. Next Year Growth Estimate
-                    # Примечание: yfinance не всегда отдает форвардный консенсус-прогноз напрямую. 
-                    # Используем ближайшую метрику оценки роста (earningsGrowth), строго избегая галлюцинаций.
                     growth_estimate = info.get('earningsGrowth') 
                     if isinstance(growth_estimate, (int, float)):
                         growth_str = f"{growth_estimate * 100:.2f}%"
                     else:
                         growth_str = "Data Unavailable"
 
-                    # Формирование итоговой структуры
+                    # Формирование итоговой структуры таблицы
                     metrics_data = {
                         "Ключевая Метрика": [
                             "(1) Current Price & Market Cap",
@@ -117,6 +115,20 @@ if st.button("Анализировать"):
                     
                     # Отрисовка чистой таблицы
                     st.dataframe(df, hide_index=True, use_container_width=True)
+
+                    # БЛОК ДЛЯ СМАРТФОНОВ (без кнопки скачивания файла)
+                    st.markdown("---")
+                    
+                    # Генерация текста для удобного ручного копирования пальцем
+                    raw_text = (
+                        f"📊 ФУНДАМЕНТАЛЬНЫЙ АНАЛИЗ: {ticker_symbol}\n"
+                        f"• Price & Market Cap: {price_and_cap}\n"
+                        f"• P/E Ratio (TTM): {pe_str}\n"
+                        f"• Forward P/E: {forward_pe_str}\n"
+                        f"• Free Cash Flow (TTM): {fcf_str}\n"
+                        f"• Next Year Growth: {growth_str}"
+                    )
+                    st.text_area("📋 Текст для копирования (зажмите и выделите всё):", value=raw_text, height=140)
 
             except Exception as e:
                 st.error(f"Процесс прерван. Произошла системная ошибка при обработке данных: {e}")
