@@ -2,9 +2,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import requests
-import random
-import time
 
 # Настройка страницы
 st.set_page_config(page_title="Fundamental Analysis Core", layout="centered")
@@ -12,61 +9,29 @@ st.set_page_config(page_title="Fundamental Analysis Core", layout="centered")
 st.markdown("### Финансовый инжиниринг: Аналитический Терминал")
 st.markdown("Инструмент гибридной оценки активов (DCF + Mean Reversion).")
 
-# --- СИСТЕМА ОБХОДА БЛОКИРОВОК И КЭШИРОВАНИЯ (24 часа) ---
+# --- ЧИСТАЯ СИСТЕМА КЭШИРОВАНИЯ (24 часа) ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_financial_data(ticker_symbol):
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ]
+    ticker = yf.Ticker(ticker_symbol)
+    info = ticker.info
     
-    # Скрытый цикл: 3 попытки пробить Rate Limit перед тем как сдаться
-    for attempt in range(3):
-        try:
-            # Генерация случайного фейкового IP-адреса для подмены (IP Spoofing)
-            fake_ip = f"{random.randint(11, 197)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}"
-            
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': random.choice(user_agents),
-                'X-Forwarded-For': fake_ip,  # Маскировка IP под реального пользователя
-                'Client-IP': fake_ip,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Cache-Control': 'no-cache'
-            })
-            
-            ticker = yf.Ticker(ticker_symbol, session=session)
-            info = ticker.info
-            
-            if not info or ('symbol' not in info and 'regularMarketPrice' not in info and 'currentPrice' not in info):
-                raise ValueError("Yahoo Finance вернул пустой ответ (Блокировка)")
-                
-            growth_estimates = None
-            earnings_estimate = None
-            
-            try:
-                if hasattr(ticker, 'growth_estimates') and ticker.growth_estimates is not None:
-                    growth_estimates = ticker.growth_estimates.copy()
-            except: pass
-            
-            try:
-                if hasattr(ticker, 'earnings_estimate') and ticker.earnings_estimate is not None:
-                    earnings_estimate = ticker.earnings_estimate.copy()
-            except: pass
-            
-            return info, growth_estimates, earnings_estimate
-            
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2 ** attempt) # Пауза перед новой попыткой: 1 сек, затем 2 сек
-            else:
-                raise e # Если 3 попытки с разными IP провалились, выдаем ошибку
+    if not info or ('symbol' not in info and 'regularMarketPrice' not in info and 'currentPrice' not in info):
+        raise ValueError("Данные не найдены или временно недоступны.")
+        
+    growth_estimates = None
+    earnings_estimate = None
+    
+    try:
+        if hasattr(ticker, 'growth_estimates') and ticker.growth_estimates is not None:
+            growth_estimates = ticker.growth_estimates.copy()
+    except: pass
+    
+    try:
+        if hasattr(ticker, 'earnings_estimate') and ticker.earnings_estimate is not None:
+            earnings_estimate = ticker.earnings_estimate.copy()
+    except: pass
+    
+    return info, growth_estimates, earnings_estimate
 
 # --------------------------------------------------
 
@@ -76,7 +41,7 @@ if st.button("Анализировать"):
     if not ticker_symbol:
         st.warning("Пожалуйста, введите тикер для начала анализа.")
     else:
-        with st.spinner("Прорыв через защиту API и сбор данных..."):
+        with st.spinner("Сбор фундаментальных данных..."):
             try:
                 info, growth_estimates, earnings_estimate = fetch_financial_data(ticker_symbol)
                 
@@ -84,23 +49,23 @@ if st.button("Анализировать"):
                 current_price = info.get('currentPrice', info.get('regularMarketPrice'))
                 market_cap = info.get('marketCap')
                 
-                price_str = f"${current_price:,.2f}" if isinstance(current_price, (int, float)) else "Data Unavailable"
+                price_str = f"${current_price:,.2f}" if isinstance(current_price, (int, float)) else "Н/Д"
                     
                 if isinstance(market_cap, (int, float)):
                     if market_cap >= 1e12: cap_str = f"${market_cap / 1e12:.2f}T"
                     elif market_cap >= 1e9: cap_str = f"${market_cap / 1e9:.2f}B"
                     elif market_cap >= 1e6: cap_str = f"${market_cap / 1e6:.2f}M"
                     else: cap_str = f"${market_cap:,.2f}"
-                else: cap_str = "Data Unavailable"
+                else: cap_str = "Н/Д"
                     
                 price_and_cap = f"{price_str} / {cap_str}"
 
                 # 2. P/E Ratio & Forward P/E
                 pe_ratio = info.get('trailingPE')
-                pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "Data Unavailable"
+                pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "Н/Д"
 
                 forward_pe = info.get('forwardPE')
-                forward_pe_str = f"{forward_pe:.2f}" if isinstance(forward_pe, (int, float)) else "Data Unavailable"
+                forward_pe_str = f"{forward_pe:.2f}" if isinstance(forward_pe, (int, float)) else "Н/Д"
                 
                 forward_eps = info.get('forwardEps')
 
@@ -110,10 +75,10 @@ if st.button("Анализировать"):
                     if fcf >= 1e9 or fcf <= -1e9: fcf_str = f"${fcf / 1e9:.2f}B"
                     elif fcf >= 1e6 or fcf <= -1e6: fcf_str = f"${fcf / 1e6:.2f}M"
                     else: fcf_str = f"${fcf:,.2f}"
-                else: fcf_str = "Data Unavailable"
+                else: fcf_str = "Н/Д"
 
                 # 4. АЛГОРИТМ ТРОЙНОГО ФИЛЬТРА ДЛЯ РОСТА
-                growth_str = "Data Unavailable"
+                growth_str = "Н/Д"
                 try:
                     if growth_estimates is not None and not growth_estimates.empty:
                         df_growth = growth_estimates
@@ -124,7 +89,7 @@ if st.button("Анализировать"):
                             if pd.notna(val):
                                 growth_str = f"{float(val.replace('%', '').strip()):.2f}%" if isinstance(val, str) else (f"{float(val) * 100:.2f}%" if abs(val) < 1.0 else f"{float(val):.2f}%")
                     
-                    if growth_str == "Data Unavailable":
+                    if growth_str == "Н/Д":
                         if earnings_estimate is not None and not earnings_estimate.empty:
                             df_earn = earnings_estimate
                             df_earn.index = df_earn.index.astype(str).str.lower()
@@ -134,7 +99,7 @@ if st.button("Анализировать"):
                                 if pd.notna(val):
                                     growth_str = f"{float(val.replace('%', '').strip()):.2f}%" if isinstance(val, str) else (f"{float(val) * 100:.2f}%" if abs(val) < 1.0 else f"{float(val):.2f}%")
                     
-                    if growth_str == "Data Unavailable":
+                    if growth_str == "Н/Д":
                         growth_estimate = info.get('earningsGrowth') 
                         if isinstance(growth_estimate, (int, float)):
                             growth_str = f"{growth_estimate * 100:.2f}%"
@@ -159,7 +124,7 @@ if st.button("Анализировать"):
                     hurdle_rate = 4.0 + beta * 5.0 
                     
                     try:
-                        base_growth = float(growth_str.replace('%', '')) if growth_str != "Data Unavailable" else 12.0
+                        base_growth = float(growth_str.replace('%', '')) if growth_str != "Н/Д" else 12.0
                     except: base_growth = 12.0
                         
                     r_pct, g_pct, gt_pct = hurdle_rate / 100.0, base_growth / 100.0, 0.03
@@ -210,4 +175,4 @@ if st.button("Анализировать"):
                 st.text_area("📋 Текст для копирования (зажмите и выделите всё):", value=raw_text, height=140)
 
             except Exception as e:
-                st.error("⚠️ Yahoo Finance агрессивно блокирует запросы с серверов Streamlit. Скрипт попытался обойти защиту 3 раза с подменой IP, но сеть перегружена. Попробуйте еще раз через несколько минут.")
+                st.error(f"Ошибка получения данных от Yahoo Finance: {e}. Попробуйте еще раз.")
